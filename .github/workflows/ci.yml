@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: "1.27.x"
+
+jobs:
+  test:
+    name: Vet and test (race)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Install FFmpeg development libraries (and ffprobe, for the webrtc-recv test)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pkg-config libavcodec-dev libavutil-dev libswscale-dev ffmpeg
+      - run: make check-deps
+      - run: go vet ./...
+      - run: go test -race ./...
+      - run: make build
+      - name: termplay and webrtc-recv build without cgo
+        run: |
+          CGO_ENABLED=0 GOOS=windows go build -o /dev/null ./cmd/termplay
+          CGO_ENABLED=0 GOOS=windows go build -o /dev/null ./cmd/webrtc-recv
+          CGO_ENABLED=0 go test ./cmd/webrtc-recv ./internal/client ./internal/h264rtp
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Install FFmpeg development libraries
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pkg-config libavcodec-dev libavutil-dev libswscale-dev ffmpeg
+      - name: Install the pinned golangci-lint
+        run: make lint-install && echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - run: make lint
+
+  fuzz:
+    name: Fuzz smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Install FFmpeg development libraries
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pkg-config libavcodec-dev libavutil-dev libswscale-dev ffmpeg
+      - run: go test -run '^$' -fuzz FuzzH264Stream -fuzztime 30s ./internal/decoder
+
+  vulncheck:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Install FFmpeg development libraries
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pkg-config libavcodec-dev libavutil-dev libswscale-dev ffmpeg
+      - run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      - run: "$(go env GOPATH)/bin/govulncheck ./..."
+
+  docs:
+    name: Markdown links
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # Relative links and anchors only (--offline): external sites make CI flaky.
+      - uses: lycheeverse/lychee-action@v2
+        with:
+          args: --offline --include-fragments --no-progress README.md CONTRIBUTING.md CHANGELOG.md AGENTS.md 'docs/**/*.md' 'internal/**/*.md'
+          fail: true

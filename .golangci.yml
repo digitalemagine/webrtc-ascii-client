@@ -1,0 +1,53 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+  modules-download-mode: readonly
+
+linters:
+  default: standard
+  enable:
+    - contextcheck
+    - copyloopvar
+    - errorlint
+    - gocritic
+    - intrange
+    - modernize
+    - nolintlint
+    - perfsprint
+    - usestdlibvars
+  settings:
+    govet:
+      enable:
+        - shadow
+        - nilness
+    misspell:
+      locale: US
+    nolintlint:
+      allow-unused: false
+      require-explanation: true
+      require-specific: true
+  exclusions:
+    presets:
+      - common-false-positives
+      - std-error-handling
+    rules:
+      # gocritic sees the cgo-rewritten code, not the source: &x.field[0] becomes
+      # (*_cgoIndexN)[0] (underef), and the pointer checks cgo adds around calls
+      # such as C.av_frame_free(&d.frame) trigger dupSubExpr.
+      - path: internal/decoder/h264\.go
+        linters:
+          - gocritic
+        text: "underef|dupSubExpr"
+      # errcheck (since golangci-lint v2.15.0) flags a bare receive from a
+      # chan error; `_ = <-done` marks the discard, which S1005 calls needless.
+      - linters:
+          - staticcheck
+        text: "S1005"
+        source: "_ = <-"
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
